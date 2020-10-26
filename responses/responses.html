@@ -3,79 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="http://animationdoctorstudio.net/other-projects/maximilian/common.js"></script>
+    <script src="../common.js"></script>
     <title>Maximilian Web Interface (WIP)</title>
-    <style>
-        @font-face {
-  font-family: 'Open Sans';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('http://animationdoctorstudio.net/universal/fonts/opensans/open-sans-v16-latin-regular.eot'); /* IE9 Compat Modes */
-  src: local('Open Sans'), local('OpenSans'),
-       url('http://animationdoctorstudio.net/universal/fonts/opensans/open-sans-v16-latin-regular.eot?#iefix') format('embedded-opentype'), /* IE6-IE8 */
-       url('http://animationdoctorstudio.net/universal/fonts/opensans/open-sans-v16-latin-regular.woff2') format('woff2'), /* Super Modern Browsers */
-       url('http://animationdoctorstudio.net/universal/fonts/opensans/open-sans-v16-latin-regular.woff') format('woff'), /* Modern Browsers */
-       url('http://animationdoctorstudio.net/universal/fonts/opensans/open-sans-v16-latin-regular.ttf') format('truetype'), /* Safari, Android, iOS */
-       url('http://animationdoctorstudio.net/universal/fonts/opensans/open-sans-v16-latin-regular.svg#OpenSans') format('svg'); /* Legacy iOS */
-}
-body{ 
-text-align: center;
-margin: auto auto auto auto;
-font-family: 'Open Sans', "Segoe UI", Tahoma, sans-serif;
-font-weight: 100;
-background-color: #2C2F33;
-}
-h1, h2, p, a, div{
-    color:white
-}
-button{
-    background-color: #7289DA;
-    color:white;
-    text-decoration: none;
-    padding-left: 5%;
-    padding-right:5%;
-    padding-top:1%;
-    padding-bottom:1%;
-    border: 5px;
-    border-radius: 10px;
-    transition:0.2s;
-}
-button:hover{
-    background-color: lightskyblue;
-}
-
-#guild_id, #response_trigger, #response_text {
-    text-align:center;
-    font-family: 'Open Sans', Tahoma, sans-serif;
-    font-weight: 300;
-    padding: 0.5% 2% 0.5% 2%;
-    width: 50%;
-    height: auto;
-    -webkit-transition: 0.5s;
-    transition: 0.5s;
-    border-radius:0px;
-    border: 3px;
-    outline:none;
-    background-color:#FFF;
-    overflow:visible;
-}
-#guild_id:focus, #response_trigger:focus, #response_text:focus{
-    border: 3px;
-    border-radius:8px;
-}
-#error{
-    color:rgb(255, 0, 0)
-}
-    </style>
+    <link rel="stylesheet" href="../common.css">
 </head>
 <body>
 <h1>This is the web interface for Maximilian.</h1>
-<p>For now, you don't need to log in with your Discord account, and you can only create custom responses.</p>
-<p>Remember, this is a <b>WIP</b>, or <b>W</b>ork <b>I</b>n <b>P</b>rogress, and it may be broken. If you find bugs, please let the developer know by <a href="mailto:tk421bsod.enwiki@gmail.com">emailing</a> them.</p>
+<br>
+<p>This is a very early beta, so don't expect it to work perfectly. DM me on Discord at tk421#7244, or send an email to <a href="mailto:xtk421bsodx@gmail.com">xtk421bsodx@gmail.com</a> if you have any feedback, feature request, bug reports, or questions.</p>
 <br>
 <br>
 <p id="error"></p>
+<p id="technicalinfo" style="opacity:0;height:0;"></p>
+<button id="technicalinfobutton" style="opacity:0; padding:0.5% 2.5% 0.5% 2.5%;" onclick=showtechnicalinfo();></button>
+
 <br>
 <br>
 <input type="text" id="guild_id" name="guild_id" placeholder="Enter the ID of the server you want to create the custom response for.">
@@ -87,17 +28,26 @@ button:hover{
 <input type="text" id="response_text" name="response_text" placeholder="Enter the text that the bot should send.">
 <br>
 <br>
-<button id="saveresponse" onclick=save(savechanges);>Save Response</button>
+<button id="saveresponse" onclick=save(path,database,table,valuenodupe,valueallnum,valueallnumenabled,debug);>Save Response</button>
 <br>
 <p id="saving"></p>
 <script>
-var savechanges = "savechanges"
-//gets url parameters, second argument is default value
-var sourceofredirect = getUrlParam('redirectsource','noredirect');
-var saveresponseState = getUrlParam('responsesaved', '' );
-if (sourceofredirect == "saveresponse") {
+//initialize variables
+const path = "responses";
+const database = "maximilian";
+const table = "responses";
+const valuenodupe = "response_trigger";
+const valueallnum = "guild_id"
+const valueallnumenabled = "True"
+const debug = "";
+//get url parameters
+try {
+    var sourceofredirect = getUrlParam('redirectsource','noredirect');
+    var saveresponseState = getUrlParam('changessaved', '' );
+    var errormessage = getUrlParam('error', '');
+    if (sourceofredirect == "savechanges") {
     //depending on the result, show a different message
-    if (saveresponseState == "successful"){document.getElementById("savingresponse").innerHTML="Your custom response was saved successfully. Try testing it!";} 
+    if (saveresponseState == "successful"){document.getElementById("saving").innerHTML="Your custom response was saved successfully. Try testing it!";} 
     if (saveresponseState == "error-duplicate"){document.getElementById("error").innerHTML="Your custom response already exists. Try making a new one!";}
     //if the guild id is invalid
     if (saveresponseState == "error-guildid-invalid"){        
@@ -106,8 +56,19 @@ if (sourceofredirect == "saveresponse") {
         document.getElementById("guild_id").style.webkitTransition = "0.0s";
         document.getElementById("guild_id").style.border = "10px solid red";
         document.getElementById("guild_id").focus;}
-//if there's an unknown error
-    if (saveresponseState == "error-unknown"){document.getElementById("error").innerHTML="There was an error while saving the response you submitted. it has been reported to the developer.";}
+    //if there's a different error
+    if (saveresponseState=="error-other"){
+        if(errormessage != ""){
+            console.error(errormessage);
+            message = errormessage + ". This error was server-side, and it occurred in " + getUrlParam('errorlocation', '') + '.';
+            displayError("saveresponse", message)
+        }
+    }
+}
+} catch (error) {
+    console.error(error);
+    message = error.message + ". This error was client-side, and it occurred in responses.html."
+    displayError("saveresponse", message)
 }
 </script>
 <br>

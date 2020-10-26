@@ -1,378 +1,348 @@
 import discord
 from discord.ext import commands 
-from discord import Embed
-from discord import Reaction
-import requests
-import json
-import time
-import random
-import os
-import psutil
-import re
-import pymysql
-import datetime
-from cryptography.fernet import Fernet
 from common import db
 from common import token
-reecounter = 0
-jmmcounter = 0
-mentioncounter = 0
-#bannedwordstxt = open("bannedwords.txt", "r")
-#bannedwordslist = bannedwordstxt.split(",")
-global log
-log = open("maximillian-bot-log.txt", "a")
-# create discord client
-client = discord.Client()
-bot = discord.Client()
-'''
-commented out in case I want to use this later
-## start ip commad
-def ip_command(message, client, args):
-    try:
-        req = requests.get('http://ip-api.com/json/{}'.format(args[0]))
-        resp = json.loads(req.content.decode())
-        if req.status_code == 200:
-            if resp['status'] == 'success':
-                template = '**{}**\n**IP: **{}\n**City: **{}\n**State: **{}\n**Country: **{}\n**Latitude: **{}\n**Longitude: **{}\n**ISP: **{}'
-                out = template.format(args[0], resp['query'], resp['city'], resp['regionName'], resp['country'], resp['lat'], resp['lon'], resp['isp'])
-                return out
-            elif resp['status'] == 'fail':
-                return 'API Request Failed'
+import logging
+import time
+import aiohttp
+import io
+from zalgo_text import zalgo as zalgo_text_gen
+
+logging.basicConfig(level=logging.WARN)
+tokeninst = token()
+dbinst = db()
+intents = discord.Intents.default()
+intents.guilds = True
+intents.members = True
+intents.presences = True
+bot = commands.Bot(command_prefix="!", owner_id=538193752913608704, intents=intents, activity=discord.Activity(type=discord.ActivityType.watching, name="myself start up!"))
+decrypted_token = tokeninst.decrypt("token.txt")
+bot.guildlist = []
+bot.prefixes = {}
+bot.responses = []
+
+async def get_responses():
+    print("getting responses...")
+    bot.responses = []
+    if not bot.guildlist:    
+        for guild in await bot.fetch_guilds().flatten():
+            bot.guildlist.append(str(guild.id))
+    for guild in bot.guildlist:
+        count = dbinst.exec_query("maximilian", "select count(*) from responses where guild_id={}".format(str(guild)), False, False)
+        if count is not None:
+            if int(count['count(*)']) >= 2:
+                response = dbinst.exec_query("maximilian", "select * from responses where guild_id={}".format(str(guild)), False, True)
+                if response is not None:
+                    for each in range(int(count['count(*)'])):
+                        bot.responses.append([str(response[each]['guild_id']), response[each]['response_trigger'], response[each]['response_text']])
+            elif int(count['count(*)']) == 1:
+                response = dbinst.exec_query("maximilian", "select * from responses where guild_id={}".format(str(guild)), True, False)
+                if response is not None:
+                    bot.responses.append([str(response['guild_id']), response['response_trigger'], response['response_text']])
+
+
+async def reset_prefixes():
+    print("resetting prefixes...")
+    if not bot.guildlist:    
+        for guild in await bot.fetch_guilds().flatten():
+            bot.guildlist.append(str(guild.id))
+    for each in bot.guildlist:
+        prefixindb = dbinst.retrieve("maximilian", "prefixes", "prefix", "guild_id", str(each), False)
+        if prefixindb == "" or prefixindb == None:
+            bot.prefixes[each] = '!'
         else:
-            return 'HTTP Request Failed: Error {}'.format(req.status_code)
-    except Exception as e:
-        print(e)
-ch.add_command({
-    'trigger': '!ip',
-    'function': ip_command,
-    'args_num': 1,
-    'args_name': ['IP\Domain'],
-    'description': 'Prints information about provided IP/Domain!'
-})
-## end ip command
-'''
-async def im_command(message):
-    try:
-        dbfile=pymysql.connect(host='10.0.0.193',
-                        user='tk421bsod',
-                        password=decrypted_databasepassword.decode(),
-                        db='maximilian',
-                        charset='utf8mb4',
-                        cursorclass=pymysql.cursors.DictCursor)
-        db=dbfile.cursor()
-        db.execute("select * from dadjokesdisabled where guild_id=%s", (message.guild.id))
-        row = db.fetchone()
-        if row == None:
-            if message.author.id == int(503720029456695306):
-                print("ignoring message by Dadbot")
-            elif message.author.id == int(675530484742094893):
-                print("ignoring message by DocBot")
-            else:
-                print (message.author.id)
-                im = content.split('I\'m')
-                imvalue = str(im[1])
-                if imvalue == "Maximilian":
-                    await message.channel.send("You're not Maximilian, I'm Maximilian!")
-                elif imvalue == "maximilian":
-                    await message.channel.send("You're not Maximilian, I'm Maximilian!")
-                elif imvalue == "<@!620022782016618528>":
-                    await message.channel.send("You're not <@!620022782016618528>, I'm <@!620022782016618528>!")
-                else:
-                    immaxmilian = 'Hi ' + imvalue + ", I'm Maximilian!"
-                    await message.channel.send(immaxmilian)
-        else:
-            pass
-    except Exception as e:
-        if message.guild.id == 678789014869901342:
-            await message.channel.send(str(e))
-        print(e)
-# when bot is ready
-@client.event
+            bot.prefixes[each] = prefixindb
+
+@bot.event
 async def on_ready():
-    try:
-        print(client.user.name)
-        print(client.user.id)
-        print("log opened")
-        log.write("I just logged in! \n")
-        log.flush()
-    except Exception as e:
-        print(e)
-
-# on new message
-@client.event
+    await reset_prefixes()
+    await get_responses()
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=str(len(bot.guilds))+" guilds!"))
+    print("ready")
+    
+@bot.event
 async def on_message(message):
-    ree = "This server is a ree free zone. "
-    jmm = "This server is a jmm free zone. "
-    embed = discord.Embed()
-    process = psutil.Process(os.getpid())
-    embed.set_image(url="")
-    global jmmcounter
-    global reecounter 
-    global mentioncounter
-    global timestamp
-    global bannedwordslist
-    global bannedwordstxt
-    content = message.content
-    data = ""
-    system = ""
-    systemlist = ""
-    securitylevel = ""
-    args = []
-    populatedsystems = []
-    unpopulatedsystems = []
-    print(content)
-      # if the message is from the bot itself ignore it
-    print("Memory usage in bytes: " + str(process.memory_info().rss)) 
-    if message.author == client.user:
-        pass
-    else:  
-        try:
-            dbfile=pymysql.connect(host='10.0.0.193',
-                             user='tk421bsod',
-                             password=decrypted_databasepassword.decode(),
-                             db='maximilian',
-                             charset='utf8mb4',
-                             cursorclass=pymysql.cursors.DictCursor)
-            db=dbfile.cursor()
-            db.execute("select * from responses where guild_id=%s and response_trigger like %s", (message.guild.id, message.content))
-            row = db.fetchone()
-            if row is None:
-                pass
+    if message.author != bot.user:
+        if message.content.startswith('<@!620022782016618528> '):
+            bot.command_prefix = '<@!620022782016618528> '
+        else:
+            if message.guild is not None:
+                try:    
+                    bot.command_prefix = bot.prefixes[str(message.guild.id)]
+                except KeyError:
+                    print("Couldn't get prefixes, using default prefix instead")
+                    bot.command_prefix = "!"
+                    pass
+                for each in range(len(bot.responses)):
+                    if int(bot.responses[each][0]) == int(message.guild.id):
+                        if bot.responses[each][1] == message.content.replace(bot.command_prefix, ""):
+                            await message.channel.send(bot.responses[each][2])
+                            return
+        await bot.process_commands(message)
+
+async def exectime(start_time, ctx):
+    await ctx.send("took " + str(round(time.time()-start_time, 2)) + " seconds to execute")
+
+@bot.command(help="Set Maximilian's prefix, only works if you're an admin", aliases=['prefixes'])
+async def prefix(ctx, arg):
+    #should probably make this shorter and eliminate a bunch of those if statements
+    if ctx.author.guild_permissions.administrator or ctx.author.id == bot.owner_id:
+        print("changing prefix...")
+        changingprefixmessage = await ctx.send("Ok. Changing prefix...")
+        start_time = time.time()
+        await ctx.trigger_typing()
+        prefixsetmessage = "My prefix in this server has been set to `" + str(arg) + "` ."
+        duplicateprefixmessage = "My prefix in this server is already `" + str(arg) + "`."
+        dbentry = dbinst.retrieve("maximilian", "prefixes", "prefix", "guild_id", str(ctx.guild.id), False)
+        if dbentry == "" or dbentry == None:
+            print("no db entry found")
+            bot.prefixes[ctx.guild.id] = arg
+            result = dbinst.insert("maximilian", "prefixes", {"guild_id":str(ctx.guild.id), "prefix":str(arg)}, "guild_id", False, "", False)
+            if result == "success":
+                print("set prefix")
+                await reset_prefixes()
+                await changingprefixmessage.edit(content=prefixsetmessage)
+                await exectime(start_time, ctx)
+                return "changed prefix"
             else:
-                log.write("Sent a custom response at " + str(datetime.datetime.now()))
-                log.flush()
-                await message.channel.send(row['response_text'])
-            db.execute("select * from prefixes where guild_id=%s", (message.guild.id, ))
-            prefixrow = db.fetchone()
-            if prefixrow != None:
-                prefix = str(prefixrow["prefix"])
-            elif prefixrow == None:
-                prefix = "!"
-            db.close()
-        except Exception as e:
-            print(e)
-        if "!systems" in content:
-            try:
-                #print("File opened")
-                #args = content.split(" ")
-                #print (str(args))
-                #if args[1] != "":
-                 #   if args[1] == "security":
-                  #      if args[2] != "":
-                   #         data = open("C:/Users/colin/bots/systems.csv")
-                    #        print("File opened")
-                     #       securitylevel = args[2]
-                      #      print(securitylevel)
-                       #     for line in data: 
-                        #        system = line.split(',')
-                         #       print(system[13])
-                          #      if str(system[13]) == str(securitylevel):
-                           #         print ("found a match")
-                            #        systemlist.write("Id: " + system[0] + " EDSM Id: " + system[1] + " Name: " + system[2] + " X: " + system[3] + " Y: " + system[4] + " Z: " + system[5] + " Population: " + system[6] + " Government: " + system[9] + " Security: " + system[13])
-                             #       await message.channel.send("Id: " + system[0] + " EDSM Id: " + system[1] + " Name: " + system[2] + " X: " + system[3] + " Y: " + system[4] + " Z: " + system[5] + " Population: " + system[6] + " Government: " + system[9] + " Security: " + system[13])
-                 #   else:
-                    
-                systemlist = open("C:/Users/colin/bots/systemlist.txt", "w")
-                data = open("C:/Users/colin/bots/systems.csv")
-                populatedsystems = []
-                systemlist.write("")
-                unpopulatedsystems = []
-                for line in data:
-                    system = line.split(',')
-                    if system[7] == "1":
-                        try:
-                            print(system)
-                            populatedsystems.write(system[0])
-                            print("This system is populated")
-                            systemlist.write("Id: " + system[0] + " EDSM Id: " + system[1] + " Name: " + system[2] + " X: " + system[3] + " Y: " + system[4] + " Z: " + system[5] + " Population: " + system[6] + " Government: " + system[9] + " Security: " + system[13])
-                        except Exception as e:
-                            print(e)       
-                    else:
-                        try:
-                            unpopulatedsystems.write(system[0])
-                            systemlist.write("Id: " + system[0] + " EDSM Id: " + system[1] + " Name: " + system[2] + " X: " + system[3] + " Y: " + system[4] + " Z: " + system[5] + " Population: " + system[6] + " Government: " + system[9] + " Security: " + system[13])
-                                            # in bytes      
-                        except Exception as e:
-                            print(e)
-            except Exception as e:
-                if message.guild.id == 678789014869901342:
-                    await message.channel.send(str(e))
-                print(e)
-        if str(prefix) + "prefix" in content:
-            await message.channel.send("Maximilian is down for maintenance. \n To keep track of changes, join the Bot Test Zone (support server coming soon) at https://discord.gg/yHEJS2p. \n DM TK421bsod#7244 if you want an invite to the repository, to keep track of changes and help with development. \n *Don't be sad it's down, be excited for Maximilian v3!*")
-            '''prefixargument = content.split(" ")[1]
-            dbfile=pymysql.connect(host='10.0.0.193',
-                             user='tk421bsod',
-                             password=decrypted_databasepassword.decode(),
-                             db='maximilian',
-                             charset='utf8mb4',
-                             cursorclass=pymysql.cursors.DictCursor)
-            db=dbfile.cursor()
-            db.execute("select * from prefixes where guild_id=%s and prefix=%s", (message.guild.id, prefixargument))
-            row = db.fetchone()
-            if row == None:
-                await message.channel.send("Setting my prefix in this server to `" + str(prefixargument) + "`...")
-                log.write("Setting my prefix in " + message.guild.name + " to" + str(prefixargument))
-                db.execute("delete from prefixes where guild_id=%s", (message.guild.id, ))
-                dbfile.commit()
-                db.execute("insert into prefixes(guild_id, prefix) values (%s, %s)", (message.guild.id, prefixargument))
-                dbfile.commit()
-                dbfile.close()
-                log.write("My prefix has been set to " + str(prefixargument) + " in " + message.guild.name + ".")
-                await message.channel.send("My prefix has been set to `" + str(prefixargument) + "` in this server. Use `" + str(prefixargument) + "` before any commands.")
-            elif row != None:
-                await message.channel.send("My prefix is already set to `" + str(prefixargument) + "` in this server.")
-                '''
-        if str(prefix) + "help" in content:
-            await message.channel.send("Maximilian is down for maintenance. \n To keep track of changes, join the Bot Test Zone (support server coming soon) at https://discord.gg/yHEJS2p. \n DM TK421bsod#7244 if you want an invite to the repository, to keep track of changes and help with development. \n *Don't be sad it's down, be excited for Maximilian v3!*")
-            # await message.channel.send("Help: \n If you want to create a custom response, go to http://animationdoctorstudio.net/other-projects/maximilian/responses and fill out the form. \n Dad jokes: Dad jokes are enabled by default. To disable them, type `!disable dadjokes`. To enable them, type `!enable dadjokes`. \n ")
-
-        if str(prefix) + "cats" in content:
-            await message.channel.send("Maximilian is down for maintenance. \n To keep track of changes, join the Bot Test Zone (support server coming soon) at https://discord.gg/yHEJS2p. \n DM TK421bsod#7244 if you want an invite to the repository, to keep track of changes and help with development. \n *Don't be sad it's down, be excited for Maximilian v3!*")
-            '''try:
-                embed.clear_fields()
-                embed = discord.Embed()
-                embed.set_image(url="https://cataas.com/cat")
-                await message.channel.send(embed=embed)
-
-                log.write("I posted a cat photo! \n")
-            except Exception as e:
-                if message.guild.id == 678789014869901342:
-                    await message.channel.send(str(e))
-                print(e)
-
-        if content.startswith(str(prefix) + "disable dadjokes"):
-            try:
-                dbfile=pymysql.connect(host='10.0.0.193',
-                             user='tk421bsod',
-                             password=decrypted_databasepassword.decode(),
-                             db='maximilian',
-                             charset='utf8mb4',
-                             cursorclass=pymysql.cursors.DictCursor)
-                db=dbfile.cursor()
-                print("Checking for duplicate entries...")
-                db.execute("select * from dadjokesdisabled where guild_id=%s;", (message.guild.id))
-                row = db.fetchone()
-                print (row)
-                if row == None:
-                    db.execute("insert into dadjokesdisabled(guild_id) values (%s);", (message.guild.id))
-                    dbfile.commit()
-                    await message.channel.send("Dad jokes have been disabled in this server.")
-                    db.close()
+                print("error")
+                await ctx.send("An error occured while setting the prefix. Please try again later.")
+                await exectime(start_time, ctx)
+                print(result)
+                return "error"
+        elif dbentry == arg:
+            print("tried to change to same prefix")
+            await ctx.send(duplicateprefixmessage)
+            await exectime(start_time, ctx)
+            return "changed prefix"
+        elif dbentry != "" and dbentry != arg:
+            print("db entry found")
+            result = dbinst.insert("maximilian", "prefixes", {"guild_id":str(ctx.guild.id), "prefix":str(arg)}, "guild_id", False, "", False)
+            if result == "success":
+                print("set prefix")
+                await reset_prefixes()
+                await changingprefixmessage.edit(content=prefixsetmessage)
+                await exectime(start_time, ctx)
+                return "changed prefix"
+            elif result == "error-duplicate":
+                print("there's already an entry for this guild")
+                deletionresult = dbinst.delete("maximilian", "prefixes", str(ctx.guild.id), "guild_id", "", "", False)
+                if deletionresult == "successful":
+                    result = dbinst.insert("maximilian", "prefixes", {"guild_id":str(ctx.guild.id), "prefix":str(arg)}, "guild_id", False, "", False)
+                    if result == "success":
+                        print("set prefix")
+                        await reset_prefixes()
+                        await changingprefixmessage.edit(content=prefixsetmessage)
+                        await exectime(start_time, ctx)
+                    else: 
+                        print("error")
+                        await changingprefixmessage.edit(content="An error occurred when setting the prefix. Please try again later.")
+                        print(result)
+                        await exectime(start_time, ctx)
+                        return "error"
                 else:
-                    await message.channel.send("Dad jokes are already disabled in this server.")
-                    db.close()
-            except Exception as e:
-                if message.guild.id == 678789014869901342:
-                    await message.channel.send(str(e))
-                print(e)
-                '''
-        if content.startswith(str(prefix) + "enable dadjokes"):
-            await message.channel.send("Maximilian is down for maintenance. \n To keep track of changes, join the Bot Test Zone (support server coming soon) at https://discord.gg/yHEJS2p. \n DM TK421bsod#7244 if you want an invite to the repository, to keep track of changes and help with development. \n *Don't be sad it's down, be excited for Maximilian v3!*")
-            '''try:
-                dbfile=pymysql.connect(host='10.0.0.193',
-                             user='tk421bsod',
-                             password=decrypted_databasepassword.decode(),
-                             db='maximilian',
-                             charset='utf8mb4',
-                             cursorclass=pymysql.cursors.DictCursor)
-                db=dbfile.cursor()
-                db.execute("select * from dadjokesdisabled where guild_id=%s", (message.guild.id))
-                row = db.fetchone()
-                if row != None:
-                    db.execute("delete from dadjokesdisabled where guild_id=%s;", (message.guild.id))
-                    dbfile.commit()
-                    log.write("Dad jokes have been disabled in " + str(message.guild.name))
-                    log.flush()
-                    await message.channel.send("Dad jokes have been enabled in this server.")
-                    db.close()
-                else:
-                    await message.channel.send("Dad jokes are already enabled in this server.")
-                    db.close()
-            except Exception as e:
-                if message.guild.id == 678789014869901342:
-                    await message.channel.send(str(e))
-                print(e)
-'''
-        if str(prefix) + "cv" in content:
-            await message.channel.send("Maximilian is down for maintenance. \n To keep track of changes, join the Bot Test Zone (support server coming soon) at https://discord.gg/yHEJS2p. \n DM TK421bsod#7244 if you want an invite to the repository, to keep track of changes and help with development. \n *Don't be sad it's down, be excited for Maximilian v3!*")
-            '''
-            arguments = content.split(" ")
-            dbfile=pymysql.connect(host='10.0.0.193',
-                            user='tk421bsod',
-                            password=decrypted_databasepassword.decode(),
-                            db='covid19data',
-                            charset='utf8mb4',
-                            cursorclass=pymysql.cursors.DictCursor)
-            db=dbfile.cursor()
-            if arguments[1] == "total":
-                await message.channel.send("Processing, this may take a bit.")
-                db.execute('select * from covid19data order by date desc limit 1')
-                row = db.fetchone()
-                date = str(row['date'])
-                db.execute("select cases from covid19data where date = %s;", (date, ))
-                row = db.fetchone()
-                casenum = 0
-                deathnum = 0
-                while row != None:
-                    casenum = casenum + int(row['cases'])
-                    row = db.fetchone()
-                db.execute('select deaths from covid19data where date = %s;', (date, ))
-                row = db.fetchone()
-                while row != None:
-                    deathnum = deathnum + int(row['deaths'])
-                    row = db.fetchone()
-                row = db.fetchone()
-                dbfile.close()
+                    print("error")
+                    await changingprefixmessage.edit(content="An error occurred when setting the prefix. Please try again later.")
+                    print(deletionresult)
+                    await exectime(start_time, ctx)
+                    return "error"
+            else:
+                await changingprefixmessage.edit(content="An error occurred when setting the prefix. Please try again later.")
+                print(result)
+                await exectime(start_time, ctx)
+                return "error"
+    else:
+        await ctx.send("You don't have the permissions required to run this command.")
 
-                await message.channel.send("Total cases in the US: " + str(casenum) + " Total deaths in the US: " + str(deathnum) + " This information was last updated on " + str(date) + ".")
-            elif arguments[1] == "history":
-                db.execute("select date, cases, deaths from covid19data")
-                casenum1 = 0
-                casenum2 = 0
-                row = db.fetchone()
-        if "I'm".lower() in content.lower():
-            try:
-                im_command(message)
-            except Exception as e:
-                if message.guild.id == 678789014869901342:
-                    await message.channel.send(str(e))
-                print(e)
-        '''
-        '''for i in bannedwordslist:
-            if i in content:
-                try:
-                    await message.delete()
-                    reecounter = reecounter + 1
-                    await message.channel.send(ree + "\n I have detected " + str(reecounter) + " banned words in the time I've been online.")
-                    await message.channel.send("The original message was sent by <@!" + str(message.author.id) + ">. It said `" + content + "` and the banned word was " + i + " .")
-                    print("Message deleted.")
-                    
-                except Exception as e:
-                    print(e)
-        '''
-    log.flush()
+@bot.event
+async def on_command_error(ctx, error):
+    await ctx.send("There was an error. Please try again later.")
+    await ctx.send("`"+str(error)+"`")
 
-@client.event
-@client.event
+@bot.command(aliases=["owner"])
+async def hi(ctx):
+    await ctx.send("Hello! I'm a robot. tk421#7244 made me!")
+
+@bot.command(help="zalgo text")
+async def zalgo(ctx, *, arg):
+    await ctx.send(zalgo_text_gen.zalgo().zalgofy(str(arg)))
+
+@bot.command(help="Get information about a certain user, including status, roles, profile picture, and permissions", aliases=['getuserinfo'])
+async def userinfo(ctx):
+    start_time = time.time()
+    await ctx.trigger_typing()
+    rolestring = ""
+    permissionstring = ""
+    if ctx.message.mentions is not None and ctx.message.mentions != []:
+    	requested_user = ctx.message.mentions[0]
+    else:
+        requested_user = ctx.message.author
+    status = requested_user.status[0]
+    statusnames = {"online" : "Online", "dnd" : "Do Not Disturb", "idle" : "Idle", "offline" : "Invisible/Offline"}
+    statusemojis = {"online" : "<:online:767294866488295475>", "dnd": "<:dnd:767510004135493662>", "idle" : "<:idle:767510329139396610>", "offline" : "<:invisible:767510747466170378>"}
+    if len(requested_user.roles) == 1:
+        rolecolor = discord.Color.blurple()
+    else:
+        rolecolor = requested_user.roles[len(requested_user.roles)-1].color
+    embed = discord.Embed(title="User info for " + str(requested_user.name) + "#" + str(requested_user.discriminator), color=rolecolor)
+    embed.add_field(name="Date joined:", value=requested_user.joined_at, inline=False)
+    embed.add_field(name="Date created:", value=requested_user.created_at, inline=False)
+    for each in requested_user.roles:
+        if each.name != "@everyone":
+            rolestring = rolestring + "<@&" + str(each.id) + ">, "
+        else:
+            rolestring = rolestring + each.name + ", "
+    for each in requested_user.guild_permissions:
+        if each[1] == True:
+            permissionstring = permissionstring + each[0].replace("_", " ").capitalize() + ", "
+    rolestring = rolestring[:-2]
+    permissionstring = permissionstring[:-2]
+    embed.add_field(name="Roles:", value=rolestring, inline=False)
+    embed.add_field(name="Permissions:", value=permissionstring, inline=False)
+    embed.add_field(name="Status:", value=statusemojis[status] + " " + statusnames[status], inline=False)
+    if requested_user.activity == None:
+    	statusinfo = "No status details available"
+    else:
+        if requested_user.activity.type.name is not None and requested_user.activity.type.name != "custom":
+            activitytype = requested_user.activity.type.name.capitalize()
+        else:
+            activitytype = ""
+        statusinfo = "Status details: '" + activitytype + " " + requested_user.activity.name + "'"
+    executiontime = "took " + str(round(time.time()-start_time, 2)) + " seconds to execute"
+    if requested_user.id == bot.owner_id:
+        embed.set_footer(text=statusinfo + "  |  Requested by " + ctx.author.name + "#" + ctx.author.discriminator + ".  |  This is my owner's info!  |  " + executiontime)
+    else:
+        embed.set_footer(text=statusinfo + "  |  Requested by " + ctx.author.name + "#" + ctx.author.discriminator + ".  |  " + executiontime)
+    embed.set_thumbnail(url=requested_user.avatar_url)
+    await ctx.send(embed=embed)
+
+@bot.command(help="Get a new list of custom responses after adding a new response", aliases=['fetchresponses', 'getresponses'])
+async def fetch_responses(ctx):
+    gettingresponsesmessage = await ctx.send("Getting a new list of responses...")
+    await get_responses()
+    await gettingresponsesmessage.edit(content="Got a new list of responses!")
+
+@bot.command(help="List all prefixes")
+async def listprefixes(ctx):
+    prefixstring = ""
+    for key in bot.prefixes.keys():
+        if key == str(ctx.message.guild.id):
+            prefixstring = prefixstring + "`" + bot.prefixes[key] + "`"
+    await ctx.send("My prefixes in this server are " + prefixstring + " and <@!620022782016618528>")
+
+@bot.event
 async def on_raw_reaction_add(payload):
-    '''try:
-        if payload.guild_id == 631316422328451082:
-            if payload.message_id == 682814407872348234:
-                role = discord.utils.get(payload.member.guild.roles, id=682818963193069663)
-                print(role)
-                await payload.member.add_roles(role)
-                print("Role assigned to " + str(payload.member.name))
-                log.write("Role assigned to " + str(payload.member.name) + " \n ")
-                log.flush()
-            elif payload.message_id == 683162633024962599:
-                await payload.member.send("Here's an invite to the Bot Test Zone: https://discord.gg/yHEJS2p")
-                log.write("Sent an invite to " + str(payload.member.name) + "\n")
-                log.flush()
-    except Exception as e:
-        if message.guild.id == 678789014869901342:
-            await message.channel.send(str(e))
-        print(e)'''
+    if dbinst.retrieve("maximilian", "roles", "guild_id", "guild_id", str(payload.guild_id), False) is not None:
+        roleid = dbinst.retrieve("maximilian", "roles", "role_id", "message_id", str(payload.message_id), False)
+        if roleid is not None:
+            role = discord.utils.get(payload.member.guild.roles, id=int(roleid))
+            await payload.member.add_roles(role)
+            ctx = bot.get_channel(payload.channel_id)
+            await ctx.send("Assigned <@!" + str(payload.member.id) + "> the '" + role.name + "' role!", delete_after=5)
 
-# start bot
-client.run(decrypted_token.decode())
+@bot.event
+async def on_raw_reaction_remove(payload):
+    if dbinst.retrieve("maximilian", "roles", "guild_id", "guild_id", str(payload.guild_id), False) is not None:
+        guild = bot.get_guild(payload.guild_id)
+        member = guild.get_member(payload.user_id)
+        roleid = dbinst.retrieve("maximilian", "roles", "role_id", "message_id", str(payload.message_id), False)
+        if roleid is not None:
+            role = discord.utils.get(guild.roles, id=int(roleid))
+            await member.remove_roles(role)
+            ctx = bot.get_channel(payload.channel_id)
+            await ctx.send("Removed the '" + role.name + "' role from <@!" + str(member.id) + ">!", delete_after=5)
+
+@bot.command(aliases=['pong'])
+async def ping(ctx):
+    await ctx.send("Pong! My latency is " + str(round(bot.latency*1000, 1)) + "ms.")
+
+@bot.event
+async def on_guild_join(guild):
+    print("joined guild, adding guild id to list of guilds")
+    bot.guildlist.append(str(guild.id))
+    await reset_prefixes()
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=str(len(bot.guilds))+" guilds!"))
+
+@bot.command(help="Add, remove, or list reaction roles, only works if you have administrator privileges", aliases=['reactionroles'])
+async def reactionrole(ctx, action, roleid, messageid):
+    if ctx.author.guild_permissions.administrator or ctx.author.id == bot.owner_id:
+        if action == "add":
+            if dbinst.insert("maximilian", "roles", {"guild_id" : str(ctx.guild.id), "role_id" : str(roleid), "message_id" : str(messageid)}, "role_id", False, "", False) == "success":
+                await ctx.send("Added a reaction role.")
+            else: 
+                raise discord.ext.commands.CommandError(message="Failed to add a reaction role, there might be a duplicate. Try deleting the role you just tried to add.")
+        if action == "delete":
+            if dbinst.delete("maximilian", "roles", str(roleid), "role_id", "", "", False) == "successful":
+                await ctx.send("Deleted a reaction role.")
+            else:
+                raise discord.ext.commands.CommandError(message="Failed to delete a reaction role, are there any reaction roles set up for role id '" + str(roleid) + "'? Try using '"+ str(bot.command_prefix) +"reactionrole list all all' to see if you have any reaction roles set up.")
+        if action == "list":
+            roles = dbinst.exec_query("maximilian", "select * from roles where guild_id={}".format(ctx.guild.id), False, True)
+            reactionrolestring = ""
+            if roles != "()":
+                for each in roles: 
+                    reactionrolestring = reactionrolestring + " message id: " + str(each["message_id"]) + " role id: " + str(each["role_id"]) + ", "         
+                await ctx.send("reaction roles: " + str(reactionrolestring[:-2]))
+    else:
+        await ctx.send("You don't have permission to use this command.")
+
+@bot.command(help="Add, delete, or list custom responses. You must have 'Manage Server' permissions to do this. Don't include Maximilian's prefix in the response trigger.", aliases=['response'])
+async def responses(ctx, action, response_trigger, *, response_text):
+    if ctx.author.guild_permissions.manage_guild or ctx.author.id == bot.owner_id:
+        await ctx.trigger_typing()
+        if action.lower() == "add":
+            response_text.replace("*", "\*")
+            response_trigger.replace("*", "\*")
+            if dbinst.insert("maximilian", "responses", {"guild_id" : str(ctx.guild.id), "response_trigger" : str(response_trigger), "response_text" : str(response_text)}, "response_trigger", False, "", False) == "success":
+                await get_responses()
+                await ctx.send("Added a custom response. Try it out!")
+            else: 
+                raise discord.ext.commands.CommandError(message="Failed to add a response, there might be a duplicate. Try deleting the response you just tried to add.")
+        if action.lower() == "delete":
+            if dbinst.delete("maximilian", "responses", str(response_trigger), "response_trigger", "guild_id", str(ctx.guild.id), True) == "successful":
+                await get_responses()
+                await ctx.send("Deleted a custom response.")
+            else:
+                raise discord.ext.commands.CommandError(message="Failed to delete a custom response, are there any custom responses set up that use the response trigger '" + str(response_trigger) + "'?")
+        if action.lower() == "list":
+            responsestring = ""
+            await get_responses()
+            for each in range(len(bot.responses)):
+                if int(bot.responses[each][0]) == int(ctx.guild.id):
+                    if len(bot.responses[each][2]) >= 200:
+                        responsetext = bot.responses[each][2][:200] + "..."
+                    else:
+                        responsetext = bot.responses[each][2]
+                    responsestring = responsestring + " \n response trigger: `" + bot.responses[each][1] + "` response text: `" + responsetext + "`"
+            if responsestring == "":
+                responsestring = "I can't find any custom responses in this server."
+            await ctx.send(responsestring)
+    else:
+        await ctx.send("You don't have permission to use this command.")
+
+@commands.is_owner()
+@bot.command(hidden=True)
+async def listguildnames(ctx):
+    guildstring = ""
+    for each in bot.guilds:
+        guildstring = guildstring + each.name + ", "
+    await ctx.send(guildstring[:-2])
+
+@bot.command(help="Get an image of a cat. The image is generated by AI, therefore it's an image of a cat that doesn't exist", aliases=["cats"])
+async def thiscatdoesntexist(ctx):
+    await ctx.trigger_typing()
+    async with aiohttp.ClientSession() as cs:
+        async with cs.get('https://thiscatdoesnotexist.com') as r:
+            buffer = io.BytesIO(await r.read())
+            await ctx.send(file=discord.File(buffer, filename="cat.jpeg"))
+
+@bot.command(help="Get a bunch of info about the bot")
+async def about(ctx):
+    embed = discord.Embed(title="About", color=discord.Color.blurple())
+    embed.add_field(name="Useful links", value="Use `" + str(bot.command_prefix) + "help command` for more info on a certain command. \n For more help, join the support server at https://discord.gg/PJ94gft. \n To add Maximilian to your server, with only the required permissions, click [here](https://discord.com/api/oauth2/authorize?client_id=620022782016618528&permissions=268815456&scope=bot).", inline=False)
+    embed.add_field(name="Fun Commands", value="Commands that have no purpose. \n `zalgo` `cats` `ping`", inline=True)
+    embed.add_field(name="Other Commands", value="Commands that actually have a purpose. \n `about` `help` `userinfo` `reactionroles` `responses` `prefix` `listprefixes` `hi`", inline=True)
+    await ctx.send(embed=embed)
+
+print("starting bot")
+bot.run(decrypted_token)
