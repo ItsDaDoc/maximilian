@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.WARN)
 print("starting...")
 #create instance of 'Token' class, decrypt token
 tokeninst = common.token()
-decrypted_token = tokeninst.decrypt("betatoken.txt")
+decrypted_token = tokeninst.decrypt("token.txt")
 #set intents
 intents = discord.Intents.default()
 intents.guilds = True
@@ -30,7 +30,7 @@ bot.guildlist = []
 bot.prefixes = {}
 bot.responses = []
 bot.dbinst = common.db()
-bot.database = "maximilian_test"
+bot.database = "maximilian"
 #load extensions
 bot.load_extension('responses')
 bot.load_extension('prefixes')

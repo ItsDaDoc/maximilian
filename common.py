@@ -41,7 +41,7 @@ class db:
         self.dbc=self.dbobj.cursor()
         return self.dbc
 
-    def insert(self, database, table, valuesdict, valuenodupe, debug, valueallnum, valueallnumenabled):
+    def insert(self, database, table, valuesdict, valuenodupe, debug, valueallnum, valueallnumenabled, extraparam, extraparamenabled):
         #maximilian-api-savechanges.py passes data to this, where it concatenates lists of values to insert, value placeholders, and checks if data is valid and has no duplicates.
         #this is one of the only functions that actually connects to a db
         #try to execute this code, if an exception occurs, stop execution of this function and execute code in the Except block at the bottom
@@ -79,7 +79,10 @@ class db:
                         return "error-valuenotallnum"
                 #get the number of rows with duplicate values, valuenodupe is the value that distinguishes rows (like response_trigger for responses)
                 try:
-                    self.dbc.execute("select count(*) from {} where {}=%s".format(table, valuenodupe), (valuesdict[valuenodupe]))
+                    if extraparamenabled:
+                        self.dbc.execute("select count(*) from {} where {}=%s and {}=%s".format(table, valuenodupe, extraparam), (valuesdict[valuenodupe], valuesdict[extraparam]))
+                    else:
+                        self.dbc.execute("select count(*) from {} where {}=%s".format(table, valuenodupe), (valuesdict[valuenodupe]))
                     #set a variable to that result
                     row = self.dbc.fetchone()
                     #if the number of rows is greater than 0,
@@ -104,11 +107,8 @@ class db:
         except Exception as e: 
             #then print it and log the event to a file
             print("Error: " + e + ". Exiting...")
-            with open("exceptiondump.txt", "a") as dumpfile:
-                dumpfile.write("\n An exception occurred while inserting data into the database at " + str(datetime.datetime.now()) + ".\n The exception was " + str(e) + ".")
             self.error=e
-            #and return an error 
-            return "error-unhandled"
+            raise pymysql.err.OperationalError
     
     def retrieve(self, database, table, valuetoretrieve, valuenametoretrieve,  retrievedvalue, debug):
         self.connect(database)
@@ -147,8 +147,6 @@ class db:
             row = self.dbc.fetchall()
         else:
             row = self.dbc.fetchone()
-        if debug == True:
-            print(str(row))
         return row
 
 class token:
