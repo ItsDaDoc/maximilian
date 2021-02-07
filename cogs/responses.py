@@ -6,21 +6,24 @@ class responses(commands.Cog, name='Custom Commands'):
     def __init__(self, bot):
         self.bot = bot
     
+    async def check_if_ready(self):
+        if not self.bot.is_ready():
+            self.bot.logger.warn("not ready yet, waiting for cache")
+            await self.bot.wait_until_ready()
+        else:
+            print("already ready") 
+    
     async def get_responses(self):
-        print("getting responses...")
         tempresponses = []
-        #if guildlist doesn't exist for some reason, get it
-        if not self.bot.guildlist:    
-            for guild in await self.bot.fetch_guilds().flatten():
-                self.bot.guildlist.append(str(guild.id))
+        #make sure cache is ready before we try to iterate over bot.guilds (if we don't wait, bot.guilds may be incomplete)
+        await self.check_if_ready()
         #then for each guild in the list, check if the guild has any responses in the database
-        for guild in self.bot.guildlist:
-            count = self.bot.dbinst.exec_query(self.bot.database, "select count(*) from responses where guild_id={}".format(str(guild)), False, False)
-            if count is not None:
+        for guild in self.bot.guilds:
+            if (count := self.bot.dbinst.exec_query(self.bot.database, "select count(*) from responses where guild_id={}".format(str(guild.id)), False, False)) is not None:
                 #if there are responses, check if there's one or more
                 if int(count['count(*)']) >= 1:
                     #if so, get a list of responses and iterate over that, adding each one to the list
-                    response = self.bot.dbinst.exec_query(self.bot.database, "select * from responses where guild_id={}".format(str(guild)), False, True)
+                    response = self.bot.dbinst.exec_query(self.bot.database, "select * from responses where guild_id={}".format(str(guild.id)), False, True)
                     for each in range(int(count['count(*)'])):
                         tempresponses.append([str(response[each]['guild_id']), response[each]['response_trigger'], response[each]['response_text']])
         self.bot.responses = tempresponses
@@ -50,7 +53,7 @@ class responses(commands.Cog, name='Custom Commands'):
             command_trigger.replace("*", r"\*")
             for each in self.bot.commands:
                 print(each.name)
-                if command_trigger.lower() == each.name.lower():
+                if command_trigger.lower() == each.name.lower() or command_trigger.lower() == "jishaku" or command_trigger.lower() == "jsk":
                     await ctx.send("You can't create a custom command with the same name as one of my commands.")
                     return
             if self.bot.dbinst.insert(self.bot.database, "responses", {"guild_id" : str(ctx.guild.id), "response_trigger" : str(command_trigger), "response_text" : str(command_response)}, "response_trigger", False, "", False, "guild_id", True) == "success":
@@ -61,7 +64,7 @@ class responses(commands.Cog, name='Custom Commands'):
                 raise discord.ext.commands.CommandError(message="Failed to add a command, there might be a duplicate. Try deleting the command you just tried to add.")
             return
         elif command_trigger == None or command_response == None:
-            await ctx.send(f"It doesn't look like you've provided all of the required arguments. See `{self.bot.command_prefix}help commands` for more details.")
+            await ctx.send(f"It doesn't look like you've provided all of the required arguments. See `{self.bot.commandprefix}help commands` for more details.")
         if action.lower() == "delete" and command_trigger != None and command_response != None:
             if self.bot.dbinst.delete(self.bot.database, "responses", str(command_trigger), "response_trigger", "guild_id", str(ctx.guild.id), True) == "successful":
                 await self.get_responses()
@@ -71,7 +74,7 @@ class responses(commands.Cog, name='Custom Commands'):
                 raise discord.ext.commands.CommandError(message="Failed to delete a custom command, are there any custom commands set up that use the command trigger '" + str(command_trigger) + "'?")
             return
         elif command_trigger == None or command_response == None:
-            await ctx.send(f"It doesn't look like you've provided all of the required arguments. See `{self.bot.command_prefix}help commands` for more details.")
+            await ctx.send(f"It doesn't look like you've provided all of the required arguments. See `{self.bot.commandprefix}help commands` for more details.")
     
 def setup(bot):
     bot.add_cog(responses(bot))
